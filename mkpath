@@ -1,0 +1,306 @@
+#!/usr/bin/perl -w
+
+use strict;
+use warnings;
+
+use File::Path;
+
+use vars qw($VERSION);
+
+$VERSION = '1.01';
+
+# --- Exit statuses
+
+use constant FAILED => -2;
+use constant FAILED_IN_PART  => -1;
+use constant OK      =>  0;
+use constant HELP    =>  0;
+use constant USAGE   =>  1;
+use constant BAD_OPT =>  2;
+
+# --- Reporting functions
+
+sub output;
+
+sub msg;
+sub error;
+sub note;
+sub warning;
+
+# --- Default options
+
+my %opt = (
+	'mode' => 0755,
+#	'owner' => undef,
+#	'example' => undef,
+	'reckless' => 0,
+	'cleanup' => 0,
+	'quiet' => 0,
+	'verbose' => 0,
+);
+
+
+$| = 1;
+
+# --- Read options
+while ($_ = shift) {
+	last if $_ eq '--';
+	if (/^-m|--mode$/) {
+		$opt{'mode'} = shift;
+		if ($opt{'mode'} =~ /^[0-7]{3,4}$/) {
+			$opt{'mode'} = eval("0$opt{'mode'}");
+		} else {
+			error "Invalid mode: $opt{'mode'}";
+			exit BAD_OPT;
+		}
+	} elsif (/^-o|--owner$/) {
+		error "Specifying the owner isn't implemented yet";
+		exit BAD_OPT;
+#		$opt{'owner'} = shift;
+	} elsif (/^-x|--example$/) {
+		error "Specifying the owner by example isn't implemented yet";
+		exit BAD_OPT;
+#		$opt{'example'} = shift;
+#		unless (-e $opt{'example'}) {
+#			error "Example doesn't exist; $opt{'example'}";
+#			exit BAD_OPT;
+#		}
+	} elsif (/^-k|--reckless$/) {
+		$opt{'reckless'} = shift;
+	} elsif (/^-c|--cleanup$/) {
+		$opt{'cleanup'} = shift;
+	} elsif (/^-q|--quiet$/) {
+		$opt{'quiet'} = 1;
+	} elsif (/^-v|--verbose$/) {
+		$opt{'verbose'} = 1;
+	} elsif (/^-h|--help$/) {
+		msg help();
+		exit OK;
+	} elsif (/^-/) {
+		error "Unrecognized option: $_", usage();
+		exit USAGE;
+	} else {
+		unshift @ARGV, $_;
+		last;
+	}
+}
+
+# --- Make sure the user specified some paths!
+
+unless (@ARGV) {
+	error "You didn't specify any paths", usage();
+	exit USAGE;
+}
+
+# --- Make the path(s)!
+
+my (@created, @failed, @removed, @not_removed);
+
+foreach (@ARGV) {
+	eval {
+		push @created, mkpath($_, 0, $opt{'mode'});
+	};
+	if ($@) {
+		push @failed, $_;
+		error "Couldn't create directory: $@";
+		last unless $opt{'reckless'};
+	}
+}
+
+# --- Deal with failures
+
+if (@failed) {
+
+	if ($opt{'cleanup'}) {
+	
+		note "Cleaning up after error(s)...";
+		foreach (reverse @created) {
+			if (rmdir $_) {
+				push @removed, $_;
+			} else {
+				push @not_removed, $_;
+			}
+		}
+		note "The following directories were successfully removed during cleanup:",
+			map { "  $_" } @removed
+				if @removed;
+		warning "The following directories couldn't be removed during cleanup:",
+			map { "  $_" } @not_removed
+				if @not_removed;
+		
+	} else {
+	
+		warning "The following directories were created and will not be removed:",
+			@created;
+			
+	}
+	
+} elsif (@created and $opt{'verbose'}) {
+
+	output @created;
+	
+}
+
+if (@failed) {
+	exit FAILED_IN_PART
+		if @not_removed;
+	exit FAILED;
+}
+
+exit OK;
+
+
+# --- Functions
+
+sub output  { print STDOUT              map { "$_\n" } @_ }
+
+sub msg     { print STDERR              map { "$_\n" } @_ unless $opt{'quiet'} }
+sub error   { print STDERR 'ERROR: ',   map { "$_\n" } @_ unless $opt{'quiet'} }
+sub note    { print STDERR 'NOTE: ',    map { "$_\n" } @_ unless $opt{'quiet'} }
+sub warning { print STDERR 'WARNING: ', map { "$_\n" } @_ unless $opt{'quiet'} }
+
+sub help {
+	return ( summary(), usage(), options() );
+}
+
+sub summary {
+	return "mkpath - Create directories as needed to ensure that (a) path(s) exists\n"
+}
+
+sub usage {
+	return "Usage: mkpath [ options ] path...\n"
+}
+
+sub options {
+	return <<'EOS';
+Options:
+
+   -h, --help         Show helpful information and exit.
+   
+   -m <mode>, --mode <mode>
+                      Specify (in 3- or 4-digit octal form) the mode
+                      to use when creating directories (default 0755).
+   
+   -v, --verbose      List (on stdout) any directories (not just
+                      paths) created.  This doesn't affect error
+                      reporting in any way.
+   
+   -q, --quiet        Don't report any errors or warnings.
+   
+   -k, --reckless     Keep trying to create paths even after an error
+                      has occurred.  Be careful with this option!
+   
+   -c, --cleanup      After an error occurs, remove all intermediate
+                      directories created.
+   
+   -o <userid[:groupid]>, --owner <userid[:groupid]>
+                      *** NOT IMPLEMENTED YET! ***
+                      Specify the owner of created directories.  The
+                      default is determined by the OS.  NOTE: In some
+                      cases, it may not be possible to set the owner
+                      of a directory after creating it; this error is
+                      not currently recoverable.
+                      
+   -x, --example      *** NOT IMPLEMENTED YET! ***
+                      Specify a directory to use in determining the
+                      owner of created directories.
+EOS
+}
+
+sub copyright {
+	return <<'EOS';
+Copyright 2003 Paul M. Hoffman.  All rights reserved.
+
+This library is free software; you can redistribute it and/or
+modify it under the same terms as Perl itself.
+EOS
+}
+
+=head1 NAME
+
+mkpath - Create directories as needed to ensure that (a) path(s) exists
+
+=head1 SYNOPSIS
+
+    mkpath [ options ] path...
+
+=head1 OPTIONS
+
+   -h, --help         Show helpful information and exit.
+   
+   -m <mode>, --mode <mode>
+                      Specify (in 3- or 4-digit octal form) the mode
+                      to use when creating directories (default 0755).
+   
+   -v, --verbose      List (on stdout) any directories (not just
+                      paths) created.  This doesn't affect error
+                      reporting in any way.
+   
+   -q, --quiet        Don't report any errors or warnings.
+   
+   -k, --reckless     Keep trying to create paths even after an error
+                      has occurred.  Be careful with this option!
+   
+   -c, --cleanup      After an error occurs, remove all intermediate
+                      directories created.
+   
+   -o <userid[:groupid]>, --owner <userid[:groupid]>
+                      *** NOT IMPLEMENTED YET! ***
+                      Specify the owner of created directories.  The
+                      default is determined by the OS.  NOTE: In some
+                      cases, it may not be possible to set the owner
+                      of a directory after creating it; this error is
+                      not currently recoverable.
+                      
+   -x, --example      *** NOT IMPLEMENTED YET! ***
+                      Specify a directory to use in determining the
+                      owner of created directories.
+
+=head1 DESCRIPTION
+
+C<mkpath> attempts to ensure that the specified paths (to directories,
+not to files!) exist, creating directories as needed.
+
+If something goes wrong, C<mkpath> will (if you specify the C<-c> or
+C<--cleanup> flag) attempt to remove all the directories it successfully
+created.  It will B<not> delete or otherwise alter any pre-existing
+directories!  In other words, C<mkpath> will attempt to create B<all> or
+B<none> of the paths you specify, without leaving behind any stray
+directories.
+
+If you want to ensure that a B<file> path exists, you'll have to use
+L<File::Spec|File::Spec> or some such to split off the file name before
+handing it off to C<mkpath>.
+
+=head1 EXIT STATUS
+
+   -2  A path could not be created, but any clean-up required was
+       done successfully.
+
+   -1  A path could not be created.
+    
+    0  All paths were created successfully, or the help option was
+       specified.
+    
+    1  An unrecognized option was given, or no paths were specified.
+    
+    2  One or more options were invalid (e.g., a malformed mode).
+
+=head1 VERSION
+
+1.01
+
+=head1 CREDITS
+
+This script wouldn't exist without L<File::Path|File::Path>
+by Tim Bunce and Charles Bailey.
+
+=head1 COPYRIGHT
+
+Copyright 2003 Paul M. Hoffman.  All rights reserved.
+
+This library is free software; you can redistribute it and/or
+modify it under the same terms as Perl itself.
+
+=cut
+

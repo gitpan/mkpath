@@ -1,0 +1,12 @@
+Change log for mkpath
+=====================
+
+1.00 Sun 27 Apr 2003
+   - First implementation.  Virtually no testing has
+     been done, though it certainly *seems* to work.
+     All the hard work is done by File::Path.
+
+1.01 Sat 21 Jun 2003
+   - Fixed some packaging details.
+   - First public release.
+
